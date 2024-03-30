@@ -90,7 +90,12 @@ database_entry_t image_match(char *input_image, int size)
        - no return value
 ************************************************/
 void LogPrettyPrint(FILE* to_write, int threadId, int requestNumber, char * file_name, int file_size){
-  
+  // [threadId][reqNum][fd][Request string][bytes/error]
+  if (to_write == NULL) {
+      printf("[%d][%d][%d][%s][%d]\n", threadId, requestNumber, 666, file_name, file_size); // TODO: 666 is a placeholder for the file descriptor
+  } else {
+      fprintf(to_write, "[%d][%d][%d][%s][%d]\n", threadId, requestNumber, 666, file_name, file_size); // TODO: 666 is a placeholder for the file descriptor
+  }
 }
 /*
   TODO: Implement this function for Intermediate Submission
