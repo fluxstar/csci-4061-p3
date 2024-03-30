@@ -19,8 +19,44 @@ processing_args_t req_entries[100];
 * 6. receive_file_from_server saves the processed image in the output directory, so pass in the right directory path
 * 7. Close the file and the socket
 */
-void * request_handle(void * args)
-{
+void * request_handle(void * args) {
+    processing_args_t *req_args = (processing_args_t *)args;
+    char *file_name = req_args->file_name;
+    int req_id = req_args->number_worker;
+
+    // Open the file in the read-binary mode
+    FILE *fd;
+    fd = fopen(file_name, "rb");
+    if (fd == NULL) {
+        fprintf(stderr, "Error opening file: %s\n", file_name);
+        return NULL;
+    }
+
+    // Get the file length using the fseek and ftell functions
+    fseek(fd, 0, SEEK_END);
+    long filelength = ftell(fd);
+    fseek(fd, 0, SEEK_SET);
+
+    // Set up the connection with the server
+    int sockfd = setup_connection(port);
+    if (sockfd < 0) {
+        fprintf(stderr, "Error setting up connection\n");
+        fclose(fd);
+        return NULL;
+    }
+
+    // Send the file to the server
+    send_file_to_server(sockfd, fd, filelength);
+
+    // Receive the processed image from the server
+    char output_file[1028];
+    snprintf(output_file, sizeof(output_file), "%s/%d.jpg", output_path, req_id);
+    receive_file_from_server(sockfd, output_file);
+
+    // Close the file and the socket
+    fclose(fd);
+    close(sockfd);
+
     return NULL;
 }
 
@@ -33,9 +69,38 @@ void * request_handle(void * args)
 * Note: Make sure to avoid any race conditions when creating the threads and passing the file path to the request_handle function. 
 * use the req_entries array to store the file path and pass the index of the array to the thread. 
 */
-void directory_trav(char * args)
-{
-   
+void directory_trav(char * args) {
+    DIR *dir;
+    struct dirent *entry;
+
+    // Open the directory
+    dir = opendir(args);
+    if (dir == NULL) {
+        fprintf(stderr, "Error opening directory: %s\n", args);
+        return;
+    }
+
+    // Read the directory entries
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_type == DT_REG) {
+            // Entry is a file, create a new thread to invoke the request_handle function
+            char file_path[1028];
+            sprintf(file_path, "%s/%s", args, entry->d_name);
+
+            req_entries[worker_thread_id].file_name = strdup(file_path);
+            req_entries[worker_thread_id].number_worker = worker_thread_id;
+
+            pthread_create(&worker_thread[worker_thread_id], NULL, request_handle, &req_entries[worker_thread_id]);
+            worker_thread_id++;
+        }
+    }
+
+    closedir(dir);
+
+    // Join all the threads
+    for (int i = 0; i < worker_thread_id; i++) {
+        pthread_join(worker_thread[i], NULL);
+    }
 }
 int main(int argc, char *argv[])
 {
@@ -47,9 +112,14 @@ int main(int argc, char *argv[])
     /*TODO:  Intermediate Submission
     * 1. Get the input args --> (1) directory path (2) Server Port (3) output path
     */
+    char *directory_path = argv[1];
+    port = atoi(argv[2]);
+    strcpy(output_path, argv[3]);
 
     /*TODO: Intermediate Submission
     * Call the directory_trav function to traverse the directory and send the images to the server
     */
+    directory_trav(directory_path);
+
     return 0;  
 }
