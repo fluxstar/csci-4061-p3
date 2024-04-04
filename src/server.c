@@ -169,11 +169,10 @@ void *dispatch(void *arg)
   /* LOGAN ADDITIONS */
 
   int thread_id = *(int *)arg;
-  printf("Dispatch ID: %d\n", thread_id);
+  fprintf(stderr, "Dispatch ID: %d\n", thread_id);
   free(arg);
 
-  while (1) 
-  {
+  // while (1) { // WE ONLY WANT THIS TO RUN ONCE FOR THE INTERMEDIATE SUBMISSION
     size_t file_size = 0;
     request_detials_t request_details;
 
@@ -184,7 +183,8 @@ void *dispatch(void *arg)
     int client_fd = accept_connection();
     if (client_fd < 0) {
       fprintf(stderr, "Error accepting connection\n");
-      continue;
+      // continue; INTERMEDIATE SUBMISSION
+      return NULL;
     }
     
     /* TODO: Intermediate Submission
@@ -196,7 +196,8 @@ void *dispatch(void *arg)
     if (request == NULL) {
       fprintf(stderr, "Null dispatcher request, continuing...\n");
       close(client_fd);
-      continue;
+      // continue; INTERMEDIATE SUBMISSION
+      return NULL;
     }
 
    /* TODO
@@ -211,7 +212,7 @@ void *dispatch(void *arg)
           pthread_cond_wait(&request_queue_not_full, &request_queue_mutex);
       }
       //(4) Insert the request into the queue
-      printf("Request file size: %ld\n", file_size);
+      fprintf(stderr, "Request file size: %ld\n", file_size);
       request_queue[request_queue_head].file_size = file_size;
       request_queue[request_queue_head].file_descriptor = client_fd;
       request_queue[request_queue_head].buffer = request_details.buffer;
@@ -220,7 +221,7 @@ void *dispatch(void *arg)
       //(6) Release the lock on the request queue and signal that the queue is not empty anymore
       pthread_cond_signal(&request_queue_not_empty);
       pthread_mutex_unlock(&request_queue_mutex);
-  }
+  // }
     return NULL;
   /* LOGAN ADDITIONS */
 }
@@ -229,7 +230,7 @@ void * worker(void *arg) {
   /* LOGAN ADDITIONS */
   int num_request = 0;                                    //Integer for tracking each request for printing into the log file
   int fileSize    = 0;                                    //Integer to hold the size of the file being requested
-  void *memory    = NULL;                                 //memory pointer where contents being requested are read and stored
+  // void *memory    = NULL;                              //memory pointer where contents being requested are read and stored
   int fd          = INVALID;                              //Integer to hold the file descriptor of incoming request
   char *mybuf;                                  //String to hold the contents of the file being requested
 
@@ -238,10 +239,10 @@ void * worker(void *arg) {
   *    Description:      Get the id as an input argument from arg, set it to ID
   */
   int thread_id = *(int *)arg;
-  printf("Worker ID: %d\n", thread_id);
+  fprintf(stderr, "Worker ID: %d\n", thread_id);
   free(arg); // free the memory allocated for the argument (NECESSARY?)
     
-  while (1) {
+  // while (1) { // WE ONLY WANT THIS TO RUN ONCE FOR THE INTERMEDIATE SUBMISSION
     /* TODO
     *    Description:      Get the request from the queue and do as follows
       //(1) Request thread safe access to the request queue by getting the req_queue_mutex lock */
@@ -277,7 +278,7 @@ void * worker(void *arg) {
     LogPrettyPrint(logfile, thread_id, num_request, result.file_name, result.file_size);
 
     // free(mybuf);
-  }
+  // }
   return NULL;
   /* LOGAN ADDITIONS */
 }
@@ -364,14 +365,14 @@ int main(int argc , char *argv[])
   for (int i = 0; i < num_dispatcher; i++) {
     int *thread_id = (int *)malloc(sizeof(int));
     *thread_id = i;
-    printf("Creating dispatcher thread, passing in threadID arg: %d\n", *thread_id);
+    // printf("Creating dispatcher thread, passing in threadID arg: %d\n", *thread_id);
     pthread_create(&dispatcher_thread[i], NULL, (void *)dispatch, (void *)thread_id);
   }
 
   for (int i = 0; i < num_worker; i++) {
     int *thread_id = (int *)malloc(sizeof(int));
     *thread_id = i;
-    printf("Creating worker thread, passing in threadID arg: %d\n", *thread_id);
+    // printf("Creating worker thread, passing in threadID arg: %d\n", *thread_id);
     pthread_create(&worker_thread[i], NULL, (void *)worker, (void *)thread_id);
     // free(thread_id); // free the memory allocated for the thread_id
   }

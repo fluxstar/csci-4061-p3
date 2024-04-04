@@ -4,7 +4,8 @@ int port = 0;
 
 pthread_t worker_thread[100];
 int worker_thread_id = 0;
-char output_path[1028];
+char output_path[1018]; 
+// Path to save the processed images - 1018 is the limit for the file name length including the integer, .png, and /
 
 processing_args_t req_entries[100];
 
