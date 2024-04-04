@@ -50,6 +50,7 @@ int request_queue_tail = 0;
 //just uncomment out when you are ready to implement this function
 database_entry_t image_match(char *input_image, int size)
 {
+/* LOGAN ADDITIONS */
   const char *closest_file     = NULL;
 	int         closest_distance = INT_MAX;
   int closest_index = 0;
@@ -77,6 +78,7 @@ database_entry_t image_match(char *input_image, int size)
   {
     return database[closest_index];
   }
+/* LOGAN ADDITIONS */
 }
 
 //TODO: Implement this function
@@ -90,12 +92,14 @@ database_entry_t image_match(char *input_image, int size)
        - no return value
 ************************************************/
 void LogPrettyPrint(FILE* to_write, int threadId, int requestNumber, char * file_name, int file_size){
+  /* LOGAN ADDITIONS */
   // [threadId][reqNum][fd][Request string][bytes/error]
   if (to_write == NULL) {
-      printf("[%d][%d][%d][%s][%d]\n", threadId, requestNumber, 666, file_name, file_size); // TODO: 666 is a placeholder for the file descriptor
+      printf("[%d][%d][%d][%s][%d]\n", threadId, requestNumber, to_write, file_name, file_size); // TODO: 666 is a placeholder for the file descriptor
   } else {
       fprintf(to_write, "[%d][%d][%d][%s][%d]\n", threadId, requestNumber, 666, file_name, file_size); // TODO: 666 is a placeholder for the file descriptor
   }
+  /* LOGAN ADDITIONS */
 }
 /*
   TODO: Implement this function for Intermediate Submission
@@ -158,8 +162,9 @@ void loadDatabase(char *path) {
 }
 
 
-void * dispatch(void *arg) 
+void *dispatch(void *arg) 
 {   
+  /* LOGAN ADDITIONS */
   while (1) 
   {
     size_t file_size = 0;
@@ -181,33 +186,39 @@ void * dispatch(void *arg)
     */
 
     char* request = get_request_server(client_fd, &file_size);
+    if (request == NULL) {
+      fprintf(stderr, "Null dispatcher request, continuing...\n");
+      close(client_fd);
+      continue;
+    }
 
    /* TODO
     *    Description:      Add the request into the queue    */
         //(1) Copy the filename from get_request_server into allocated memory to put on request queue
-        strncpy(request_details.buffer, request, sizeof(request_details.buffer) - 1);
-        request_details.buffer[sizeof(request_details.buffer) - 1] = '\0'; // Ensure null-termination
-        //(2) Request thread safe access to the request queue
-        pthread_mutex_lock(&request_queue_mutex);
-        //(3) Check for a full queue... wait for an empty one which is signaled from req_queue_notfull
-        while (((request_queue_head + 1) % MAX_QUEUE_LEN) == request_queue_tail) {
-            pthread_cond_wait(&request_queue_not_full, &request_queue_mutex);
-        }
-        //(4) Insert the request into the queue
-        request_queue[request_queue_head].file_size = file_size;
-        request_queue[request_queue_head].file_descriptor = client_fd;
-        request_queue[request_queue_head].buffer = request_details.buffer;
-        //(5) Update the queue index in a circular fashion
-        request_queue_head = (request_queue_head + 1) % MAX_QUEUE_LEN;
-        //(6) Release the lock on the request queue and signal that the queue is not empty anymore
-        pthread_cond_signal(&request_queue_not_empty);
-        pthread_mutex_unlock(&request_queue_mutex);
+      strncpy(request_details.buffer, request, sizeof(request_details.buffer) - 1);
+      request_details.buffer[sizeof(request_details.buffer) - 1] = '\0'; // Ensure null-termination
+      //(2) Request thread safe access to the request queue
+      pthread_mutex_lock(&request_queue_mutex);
+      //(3) Check for a full queue... wait for an empty one which is signaled from req_queue_notfull
+      while (((request_queue_head + 1) % MAX_QUEUE_LEN) == request_queue_tail) {
+          pthread_cond_wait(&request_queue_not_full, &request_queue_mutex);
+      }
+      //(4) Insert the request into the queue
+      request_queue[request_queue_head].file_size = file_size;
+      request_queue[request_queue_head].file_descriptor = client_fd;
+      request_queue[request_queue_head].buffer = request_details.buffer;
+      //(5) Update the queue index in a circular fashion
+      request_queue_head = (request_queue_head + 1) % MAX_QUEUE_LEN;
+      //(6) Release the lock on the request queue and signal that the queue is not empty anymore
+      pthread_cond_signal(&request_queue_not_empty);
+      pthread_mutex_unlock(&request_queue_mutex);
   }
     return NULL;
+  /* LOGAN ADDITIONS */
 }
 
 void * worker(void *arg) {
-
+  /* LOGAN ADDITIONS */
   int num_request = 0;                                    //Integer for tracking each request for printing into the log file
   int fileSize    = 0;                                    //Integer to hold the size of the file being requested
   void *memory    = NULL;                                 //memory pointer where contents being requested are read and stored
@@ -246,7 +257,10 @@ void * worker(void *arg) {
     *    send the file to the client using send_file_to_client(int socket, char * buffer, int size)              
     */
     database_entry_t result = image_match(mybuf, fileSize); // the mix of snake_case and camelCase is a bit confusing
-    send_file_to_client(fd, result.buffer, result.file_size);
+    printf("Sending file to client\n");
+    if (send_file_to_client(fd, result.buffer, result.file_size) == -1) {
+      fprintf(stderr, "Error sending file to client\n");
+    }
     close(fd);
 
     num_request++;
@@ -255,6 +269,7 @@ void * worker(void *arg) {
     // free(mybuf);
   }
   return NULL;
+  /* LOGAN ADDITIONS */
 }
 
 int main(int argc , char *argv[])
@@ -264,6 +279,18 @@ int main(int argc , char *argv[])
     return -1;
   }
 
+  // Create directory "output"
+  if (mkdir("output", 0777) == -1) {
+    perror("Error creating directory");
+    return -1;
+  }
+
+  // Create directory "output/img"
+  if (mkdir("output/img", 0777) == -1) {
+    perror("Error creating directory");
+    return -1;
+  }
+  
 
   int port            = -1;
   char path[BUFF_SIZE] = "no path set\0";
@@ -275,34 +302,42 @@ int main(int argc , char *argv[])
   /* TODO: Intermediate Submission
   *    Description:      Get the input args --> (1) port (2) path (3) num_dispatcher (4) num_workers  (5) queue_length
   */
+  /* LOGAN ADDITIONS */
   port = atoi(argv[1]);
   strcpy(path, argv[2]); // assuming the path is null-terminated
   num_dispatcher = atoi(argv[3]);
   num_worker = atoi(argv[4]);
   queue_len = atoi(argv[5]);
+  /* LOGAN ADDITIONS */
 
   /* TODO: Intermediate Submission
   *    Description:      Open log file
   *    Hint:             Use Global "File* logfile", use "server_log" as the name, what open flags do you want?
   */
+  /* LOGAN ADDITIONS */
   logfile = fopen(LOG_FILE_NAME, "w");
   if (logfile == NULL) {
     fprintf(stderr, "Error opening log file\n");
     return -1;
   }
+  /* LOGAN ADDITIONS */
 
   /* TODO: Intermediate Submission
   *    Description:      Start the server
   *    Utility Function: void init(int port); //look in utils.h 
   */
 
+  /* LOGAN ADDITIONS */
   init(port);
+  /* LOGAN ADDITIONS */
 
   /* TODO : Intermediate Submission
   *    Description:      Load the database
   */
 
+  /* LOGAN ADDITIONS */
   loadDatabase(path);
+  /* LOGAN ADDITIONS */
  
   /* TODO: Intermediate Submission
   *    Description:      Create dispatcher and worker threads 
@@ -311,6 +346,7 @@ int main(int argc , char *argv[])
   *                      How should you track this p_thread so you can terminate it later? [global]
   */
 
+  /* LOGAN ADDITIONS */
   for (int i = 0; i < num_dispatcher; i++) {
     pthread_create(&dispatcher_thread[i], NULL, dispatch, NULL);
   }
@@ -320,13 +356,14 @@ int main(int argc , char *argv[])
     *thread_id = i;
     pthread_create(&worker_thread[i], NULL, worker, thread_id);
   }
+/* LOGAN ADDITIONS */
 
   // Wait for each of the threads to complete their work
   // Threads (if created) will not exit (see while loop), but this keeps main from exiting
   int i;
   for(i = 0; i < num_dispatcher; i++){
     fprintf(stderr, "JOINING DISPATCHER %d \n",i);
-    if((pthread_join(dispatcher_thread[i], NULL)) != 0){
+    if((pthread_join(dispatcher_thread[i], NULL)) != 0){ 
       printf("ERROR : Fail to join dispatcher thread %d.\n", i);
     }
   }
