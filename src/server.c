@@ -54,9 +54,11 @@ database_entry_t image_match(char *input_image, int size)
   const char *closest_file     = NULL;
 	int         closest_distance = INT_MAX;
   int closest_index = 0;
+    
   for (int i = 0; i < num_images_in_database; i++) {
 		const char *current_file = database[i].buffer;
 		int result = memcmp(input_image, current_file, size);
+    // printf("Compared to %s -- Result: %d\n", database[i].file_name, result);
 		if(result == 0)
 		{
 			return database[i];
@@ -95,9 +97,9 @@ void LogPrettyPrint(FILE* to_write, int threadId, int requestNumber, char * file
   /* LOGAN ADDITIONS */
   // [threadId][reqNum][fd][Request string][bytes/error]
   if (to_write == NULL) {
-      printf("[%d][%d][%d][%s][%d]\n", threadId, requestNumber, to_write, file_name, file_size); // TODO: 666 is a placeholder for the file descriptor
+      printf("[%d][%d][%d][%s][%d]\n", threadId, requestNumber, 666, file_name, file_size); // 666 is a placeholder for the file descriptor
   } else {
-      fprintf(to_write, "[%d][%d][%d][%s][%d]\n", threadId, requestNumber, 666, file_name, file_size); // TODO: 666 is a placeholder for the file descriptor
+      fprintf(to_write, "[%d][%d][%d][%s][%d]\n", threadId, requestNumber, 666, file_name, file_size); // 666 is a placeholder for the file descriptor
   }
   /* LOGAN ADDITIONS */
 }
@@ -165,6 +167,11 @@ void loadDatabase(char *path) {
 void *dispatch(void *arg) 
 {   
   /* LOGAN ADDITIONS */
+
+  int thread_id = *(int *)arg;
+  printf("Dispatch ID: %d\n", thread_id);
+  free(arg);
+
   while (1) 
   {
     size_t file_size = 0;
@@ -204,6 +211,7 @@ void *dispatch(void *arg)
           pthread_cond_wait(&request_queue_not_full, &request_queue_mutex);
       }
       //(4) Insert the request into the queue
+      printf("Request file size: %ld\n", file_size);
       request_queue[request_queue_head].file_size = file_size;
       request_queue[request_queue_head].file_descriptor = client_fd;
       request_queue[request_queue_head].buffer = request_details.buffer;
@@ -230,6 +238,7 @@ void * worker(void *arg) {
   *    Description:      Get the id as an input argument from arg, set it to ID
   */
   int thread_id = *(int *)arg;
+  printf("Worker ID: %d\n", thread_id);
   free(arg); // free the memory allocated for the argument (NECESSARY?)
     
   while (1) {
@@ -256,8 +265,9 @@ void * worker(void *arg) {
     *    store the result into a typeof database_entry_t
     *    send the file to the client using send_file_to_client(int socket, char * buffer, int size)              
     */
+    // printf("Testing image with fd: %d and file size: %d \n", fd, fileSize);
     database_entry_t result = image_match(mybuf, fileSize); // the mix of snake_case and camelCase is a bit confusing
-    printf("Sending file to client\n");
+    // printf("Sending file to client\n");
     if (send_file_to_client(fd, result.buffer, result.file_size) == -1) {
       fprintf(stderr, "Error sending file to client\n");
     }
@@ -281,14 +291,18 @@ int main(int argc , char *argv[])
 
   // Create directory "output"
   if (mkdir("output", 0777) == -1) {
-    perror("Error creating directory");
-    return -1;
+    if (errno != EEXIST) {
+      perror("Error creating directory");
+      return -1;
+    }
   }
 
   // Create directory "output/img"
   if (mkdir("output/img", 0777) == -1) {
-    perror("Error creating directory");
-    return -1;
+    if (errno != EEXIST) {
+      perror("Error creating directory");
+      return -1;
+    }
   }
   
 
@@ -348,13 +362,18 @@ int main(int argc , char *argv[])
 
   /* LOGAN ADDITIONS */
   for (int i = 0; i < num_dispatcher; i++) {
-    pthread_create(&dispatcher_thread[i], NULL, dispatch, NULL);
+    int *thread_id = (int *)malloc(sizeof(int));
+    *thread_id = i;
+    printf("Creating dispatcher thread, passing in threadID arg: %d\n", *thread_id);
+    pthread_create(&dispatcher_thread[i], NULL, (void *)dispatch, (void *)thread_id);
   }
 
   for (int i = 0; i < num_worker; i++) {
     int *thread_id = (int *)malloc(sizeof(int));
     *thread_id = i;
-    pthread_create(&worker_thread[i], NULL, worker, thread_id);
+    printf("Creating worker thread, passing in threadID arg: %d\n", *thread_id);
+    pthread_create(&worker_thread[i], NULL, (void *)worker, (void *)thread_id);
+    // free(thread_id); // free the memory allocated for the thread_id
   }
 /* LOGAN ADDITIONS */
 

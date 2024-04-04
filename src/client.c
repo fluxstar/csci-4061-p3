@@ -23,6 +23,8 @@ void * request_handle(void * args) {
     char *file_name = req_args->file_name;
     int req_id = req_args->number_worker;
 
+    printf("Processing file: %s\n", file_name);
+
     // Open the file in the read-binary mode
     FILE *fd;
     fd = fopen(file_name, "rb");
@@ -38,7 +40,7 @@ void * request_handle(void * args) {
 
     // Set up the connection with the server
     int sockfd = setup_connection(port);
-    printf("%d", sockfd);
+    printf("Connection established with server\n");
     if (sockfd < 0) {
         fprintf(stderr, "Error setting up connection\n");
         fclose(fd);
@@ -89,6 +91,7 @@ void directory_trav(char * args) {
             // Entry is a file, create a new thread to invoke the request_handle function
             char file_path[1028];
             sprintf(file_path, "%s/%s", args, entry->d_name);
+            printf("Processing file: %s\n", file_path);
 
             req_entries[worker_thread_id].file_name = strdup(file_path);
             req_entries[worker_thread_id].number_worker = worker_thread_id;
