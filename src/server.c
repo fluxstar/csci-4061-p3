@@ -362,7 +362,7 @@ int main(int argc , char *argv[])
   */
 
   /* LOGAN ADDITIONS */
-  for (int i = 0; i < num_dispatcher; i++) {
+  for (int i = 0; i < num_dispatcher; i++) { 
     int *thread_id = (int *)malloc(sizeof(int));
     *thread_id = i;
     // printf("Creating dispatcher thread, passing in threadID arg: %d\n", *thread_id);
