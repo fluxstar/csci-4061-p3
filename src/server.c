@@ -6,7 +6,9 @@ int num_dispatcher =
 int num_worker = 0;  // Global integer to indicate the number of worker threads
 FILE *logfile;       // Global file pointer to the log file
 int queue_len = 0;   // Global integer to indicate the length of the queue
-
+// keeps track of fd of client connection from accept_connection a 
+// worker is fulfilling a request for. indexed by worker id
+int *working_connection_fd = NULL;
 
 /********************* [ Database Code ] **********************/
 #define DEFAULT_DB_SIZE 100
@@ -197,24 +199,28 @@ static pthread_cond_t queue_slot_free = PTHREAD_COND_INITIALIZER;
 ************************************************/
 // just uncomment out when you are ready to implement this function
 database_entry_t image_match(char *input_image, int size) {
-    const char *closest_file     = NULL;
-    int         closest_distance = INT_MAX;
-    int closest_index = 0;
-    for (int i = 0; i < 0 /* replace with your database size*/; i++) {
-    	const char *current_file; /* TODO: assign to the buffer from the database struct*/ 	
-        int result = memcmp(input_image, current_file, size);
-    	if (result == 0) {
-    		return database[i];
-    	} 
-        else if (result < closest_distance) {
-    		closest_distance = result;
-    		closest_file     = current_file;
-        closest_index = i;
-    	}
-    }
+    const char *closest_file = NULL;
+	int closest_distance = INT_MAX;
+	int closest_index = 0;
+	int closest_file_size = INT_MAX; // ADD THIS VARIABLE
 
-    if(closest_file != NULL) return database[closest_index];
-    return database[closest_index];
+	for (int i = 0; i < database.size; i++) {
+		const char *current_file = database.entries[i].buffer; /* TODO: assign to the buffer from the database struct*/
+		int result = memcmp(input_image, current_file, size);
+		if (result == 0) return database.entries[i];
+
+		// TODO: UPDATE THIS CONDITION FOR TIEBREAKING
+		if (result < closest_distance || (result == closest_distance && database.entries[i].file_size < closest_file_size)) {
+			closest_distance = result;
+			closest_file = current_file;
+			closest_index = i;
+			closest_file_size = database.entries[i].file_size; // ADD THIS LINE
+		}
+	}
+
+    // if(closest_file != NULL) return database.entries[closest_index];
+    // return database.entries[closest_index];
+    return database.entries[closest_index];
 }
 
 // TODO: Implement this function
@@ -229,15 +235,13 @@ database_entry_t image_match(char *input_image, int size) {
 ************************************************/
 void LogPrettyPrint(FILE *to_write, int threadId, int requestNumber,
                     char *file_name, int file_size) {
-    int fd = 0;
-    if (fd == -1) {
+    int fd = working_connection_fd[threadId];
+    if (fd < 0) {
         fprintf(stderr, "bad file ptr provided. Not open or does not exist\n");
         return;
     }
 
-    printf("here\n");
     if (to_write == NULL) {
-        printf("writing to stdout\n");
         printf("[%d][%d][%d][%s][%d]\n", threadId, requestNumber, fd, file_name, file_size);
         return;
     }
@@ -423,8 +427,9 @@ void *worker(void *arg) {
 
         database_entry_t entry = image_match(request.buffer, request.file_size);
 
-        LogPrettyPrint(logfile, id, num_request, entry.file_name, entry.file_size);
         ++num_request;
+        working_connection_fd[id] = request.file_descriptor;
+        LogPrettyPrint(logfile, id, num_request, entry.file_name, entry.file_size);
 
         if (send_file_to_client(request.file_descriptor, entry.buffer, entry.file_size) == -1) {
             fprintf(stderr, "failed to send file back to client: %s\n", entry.file_name);
@@ -484,7 +489,10 @@ int main(int argc, char *argv[]) {
 
     printf("%ld\n", database.size);
     for (int i = 0; i < database.size; ++i) {
-        printf("%d %d %s\n", i, database.entries[i].file_size, database.entries[i].file_name);
+        FILE *fp = fopen(database.entries[i].file_name, "r");
+        int fd = fileno(fp);
+        fclose(fp);
+        printf("%d %d %s (fd: %d)\n", i, database.entries[i].file_size, database.entries[i].file_name, fd);
     }
 
     enqueue(93, 43, "uihr");
@@ -495,6 +503,8 @@ int main(int argc, char *argv[]) {
     printf("%d %d %s\n", r2.file_size, r2.file_descriptor, r2.buffer);
     printf("%d\n", dequeue().file_descriptor);
     
+    LogPrettyPrint(NULL, 1, 0, database.entries[0].file_name, database.entries[0].file_size);
+
     exit(0);
 
     /* TODO: Intermediate Submission
@@ -507,6 +517,7 @@ int main(int argc, char *argv[]) {
     pthread_t *dispatcher_thread = malloc(sizeof(pthread_t) * num_dispatcher);
     pthread_t *worker_thread = malloc(sizeof(pthread_t) * num_worker);
 	unsigned int *worker_id = malloc(sizeof(unsigned int) * num_worker);
+    working_connection_fd = malloc(sizeof(int) * num_worker);
 
     for (int i = 0; i < num_dispatcher; ++i) {
         pthread_create(&dispatcher_thread[i], NULL, (void *) dispatch, NULL);
