@@ -3,6 +3,7 @@
         "dirent.h": "c",
         "server.h": "c",
         "stat.h": "c",
-        "types.h": "c"
+        "types.h": "c",
+        "unistd.h": "c"
     }
 }
