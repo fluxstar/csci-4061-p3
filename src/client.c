@@ -107,7 +107,7 @@ void directory_trav(char *args) {
     // create threads to request most identical image from server for
     // each image in given path
     while ((entry = readdir(dir)) != NULL) {
-        char *fn = malloc(sizeof(char) * BUFF_SIZE + MAX_FN_SIZE);
+        char *fn = malloc(sizeof(char) * BUFF_SIZE + MAX_FN_SIZE); // path + fn size
         snprintf(fn, BUFFER_SIZE + MAX_FN_SIZE, "%s/%s", args, entry->d_name);
 
         if (stat(fn, &info) != 0) {

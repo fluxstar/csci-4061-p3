@@ -232,22 +232,9 @@ static pthread_cond_t queue_slot_free = PTHREAD_COND_INITIALIZER;
 ************************************************/
 // just uncomment out when you are ready to implement this function
 database_entry_t image_match(char *input_image, int size) {
-    const char *closest_file = NULL;
     int closest_distance = INT_MAX;
     int closest_index = 0;
     int closest_file_size = INT_MAX;  // ADD THIS VARIABLE
-
-    // debug
-    char *file_name =
-        (char *)malloc(1024);  // 1024 is a placeholder for the file name length
-    sprintf(file_name, "testing/%d.png", size);
-    FILE *file = fopen(file_name, "wb");
-    if (file != NULL) {
-        fwrite(input_image, 1, size, file);
-        fclose(file);
-    } else {
-        fprintf(stderr, "Failed to open file for writing.\n");
-    }
 
     // get the closest matching image from the database to the provided image
     for (int i = 0; i < database.size; i++) {
@@ -339,8 +326,8 @@ void loadDatabase(char *path) {
     // read name, size, and contents of each image in given directory into
     // database
     while ((entry = readdir(dir)) != NULL) {
-        char fn[BUFFER_SIZE + MAX_FN_SIZE];
-        snprintf(fn, BUFFER_SIZE + MAX_FN_SIZE, "%s/%s", path, entry->d_name);
+        char fn[BUFF_SIZE + MAX_FN_SIZE]; // path + fn size
+        snprintf(fn, BUFF_SIZE + MAX_FN_SIZE, "%s/%s", path, entry->d_name);
 
         if (stat(fn, &info) != 0) {
             fprintf(stderr, "could not get stats for file: %s\n", fn);
