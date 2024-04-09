@@ -21,16 +21,16 @@ processing_args_t req_entries[100];
 void * request_handle(void * args) {
     /* LOGAN ADDITIONS */
     processing_args_t *req_args = (processing_args_t *)args;
-    char *file_name = req_args->file_name;
+    char *file_path = req_args->file_name;
     int req_id = req_args->number_worker;
 
-    printf("Processing file: %s\n", file_name);
+    printf("Processing file: %s\n", file_path);
 
     // Open the file in the read-binary mode
     FILE *fd;
-    fd = fopen(file_name, "rb");
+    fd = fopen(file_path, "rb");
     if (fd == NULL) {
-        fprintf(stderr, "Error opening file: %s\n", file_name);
+        fprintf(stderr, "Error opening file: %s\n", file_path);
         return NULL;
     }
     
@@ -49,12 +49,19 @@ void * request_handle(void * args) {
     }
 
     // Send the file to the server
-    printf("Sending file %s to server\n", file_name);
+    printf("Sending file %s to server\n", file_path);
     send_file_to_server(sockfd, fd, filelength);
 
     // Receive the processed image from the server
     char output_file[1024];
-    snprintf(output_file, sizeof(output_file), "%s/%d.png", output_path, req_id);
+    char *file_name = strrchr(file_path, '/');
+    if (file_name != NULL) {
+        file_name++; // Skip the '/'
+    } else {
+        file_name = file_path; // No '/' found, use the whole path
+    }
+    snprintf(output_file, sizeof(output_file), "%s/%s", output_path, file_name);
+    printf("Receiving processed file %s from server\n", output_file);
     receive_file_from_server(sockfd, output_file);
 
     // Close the file and the socket
