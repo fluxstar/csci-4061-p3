@@ -54,21 +54,34 @@ database_entry_t image_match(char *input_image, int size)
   const char *closest_file     = NULL;
 	int         closest_distance = INT_MAX;
   int closest_index = 0;
-    
+  int closest_file_size = INT_MAX; // ADD THIS VARIABLE
+
+  // char* file_name = (char *)malloc(1024); // 1024 is a placeholder for the file name length
+  // sprintf(file_name, "testing/%d.png", size);
+  // FILE *file = fopen(file_name, "wb");
+  // if (file != NULL) {
+  //     fwrite(input_image, 1, size, file);
+  //     fclose(file);
+  // } else {
+  //     printf("Failed to open file for writing.\n");
+  // }
+
   for (int i = 0; i < num_images_in_database; i++) {
 		const char *current_file = database[i].buffer;
 		int result = memcmp(input_image, current_file, size);
     // printf("Compared to %s -- Result: %d\n", database[i].file_name, result);
 		if(result == 0)
 		{
+      printf("Found exact match!\n");
 			return database[i];
 		}
 
-		else if(result < closest_distance)
+		else if(result < closest_distance || (result == closest_distance && database[i].file_size < closest_file_size))
 		{
 			closest_distance = result;
-			closest_file     = current_file;
-      closest_index = i;
+			closest_file = current_file;
+			closest_index = i;
+			closest_file_size = database[i].file_size;
 		}
 	}
 
@@ -155,6 +168,16 @@ void loadDatabase(char *path) {
       database[num_images_in_database].file_name = strdup(entry->d_name); //strdup allocates memory for the string (filename, no path)
       database[num_images_in_database].file_size = file_size;
       database[num_images_in_database].buffer = buffer;
+      
+      // char* file_name = (char *)malloc(1024); // 1024 is a placeholder for the file name length
+      // sprintf(file_name, "testing/%ld.png", file_size);
+      // FILE *file = fopen(file_name, "wb");
+      // if (file != NULL) {
+      //     fwrite(buffer, 1, file_size, file);
+      //     fclose(file);
+      // } else {
+      //     printf("Failed to open file for writing.\n");
+      // }
 
       num_images_in_database++;
     }
@@ -172,7 +195,7 @@ void *dispatch(void *arg)
   fprintf(stderr, "Dispatch ID: %d\n", thread_id);
   free(arg);
 
-  // while (1) { // WE ONLY WANT THIS TO RUN ONCE FOR THE INTERMEDIATE SUBMISSION
+  while (1) {
     size_t file_size = 0;
     request_detials_t request_details;
 
@@ -183,7 +206,7 @@ void *dispatch(void *arg)
     int client_fd = accept_connection();
     if (client_fd < 0) {
       fprintf(stderr, "Error accepting connection\n");
-      // continue; INTERMEDIATE SUBMISSION
+      continue;
       return NULL;
     }
     
@@ -196,15 +219,27 @@ void *dispatch(void *arg)
     if (request == NULL) {
       fprintf(stderr, "Null dispatcher request, continuing...\n");
       close(client_fd);
-      // continue; INTERMEDIATE SUBMISSION
+      continue;
       return NULL;
     }
 
    /* TODO
     *    Description:      Add the request into the queue    */
         //(1) Copy the filename from get_request_server into allocated memory to put on request queue
-      strncpy(request_details.buffer, request, sizeof(request_details.buffer) - 1);
-      request_details.buffer[sizeof(request_details.buffer) - 1] = '\0'; // Ensure null-termination
+        memcpy(request_details.buffer, request, sizeof(request_details.buffer) - 1);
+        request_details.buffer[sizeof(request_details.buffer) - 1] = '\0';
+
+        // char* file_name = (char *)malloc(1024); // 1024 is a placeholder for the file name length
+        // sprintf(file_name, "testing/%s.png", request_details.file_name);
+        // FILE *file = fopen(file_name, "wb");
+        // if (file != NULL) {
+        //     fwrite(request_details.buffer, 1, request_details.filelength, file);
+        //     fclose(file);
+        // } else {
+        //     printf("Failed to open file for writing.\n");
+        // }
+
+      // request_details.buffer[sizeof(request_details.buffer) - 1] = '\0'; // Ensure null-termination
       //(2) Request thread safe access to the request queue
       pthread_mutex_lock(&request_queue_mutex);
       //(3) Check for a full queue... wait for an empty one which is signaled from req_queue_notfull
@@ -221,8 +256,8 @@ void *dispatch(void *arg)
       //(6) Release the lock on the request queue and signal that the queue is not empty anymore
       pthread_cond_signal(&request_queue_not_empty);
       pthread_mutex_unlock(&request_queue_mutex);
-  // }
-    return NULL;
+  }
+  return NULL;
   /* LOGAN ADDITIONS */
 }
 
@@ -232,7 +267,6 @@ void * worker(void *arg) {
   int fileSize    = 0;                                    //Integer to hold the size of the file being requested
   // void *memory    = NULL;                              //memory pointer where contents being requested are read and stored
   int fd          = INVALID;                              //Integer to hold the file descriptor of incoming request
-  char *mybuf;                                  //String to hold the contents of the file being requested
 
 
   /* TODO : Intermediate Submission 
@@ -242,7 +276,7 @@ void * worker(void *arg) {
   fprintf(stderr, "Worker ID: %d\n", thread_id);
   free(arg); // free the memory allocated for the argument (NECESSARY?)
     
-  // while (1) { // WE ONLY WANT THIS TO RUN ONCE FOR THE INTERMEDIATE SUBMISSION
+  while (1) {
     /* TODO
     *    Description:      Get the request from the queue and do as follows
       //(1) Request thread safe access to the request queue by getting the req_queue_mutex lock */
@@ -254,7 +288,19 @@ void * worker(void *arg) {
       //(3) Now that you have the lock AND the queue is not empty, read from the request queue
       fd = request_queue[request_queue_tail].file_descriptor;
       fileSize = request_queue[request_queue_tail].file_size;
+      char *mybuf = (char *)malloc(fileSize);
       mybuf = request_queue[request_queue_tail].buffer;
+      
+      // char* file_name = (char *)malloc(1024); // 1024 is a placeholder for the file name length
+      // sprintf(file_name, "testing/%d.png", fileSize);
+      // FILE *file = fopen(file_name, "wb");
+      // if (file != NULL) {
+      //     fwrite(mybuf, 1, fileSize, file);
+      //     fclose(file);
+      // } else {
+      //     printf("Failed to open file for writing.\n");
+      // }
+
       //(4) Update the request queue remove index in a circular fashion
       request_queue_tail = (request_queue_tail + 1) % MAX_QUEUE_LEN;
       //(5) Fire the request queue not full signal to indicate the queue has a slot opened up and release the request queue lock  
@@ -267,6 +313,7 @@ void * worker(void *arg) {
     *    send the file to the client using send_file_to_client(int socket, char * buffer, int size)              
     */
     // printf("Testing image with fd: %d and file size: %d \n", fd, fileSize);
+
     database_entry_t result = image_match(mybuf, fileSize); // the mix of snake_case and camelCase is a bit confusing
     // printf("Sending file to client\n");
     if (send_file_to_client(fd, result.buffer, result.file_size) == -1) {
@@ -278,7 +325,7 @@ void * worker(void *arg) {
     LogPrettyPrint(logfile, thread_id, num_request, result.file_name, result.file_size);
 
     // free(mybuf);
-  // }
+  }
   return NULL;
   /* LOGAN ADDITIONS */
 }
