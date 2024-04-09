@@ -48,7 +48,7 @@ int add_database_entry(char *fn, int size, char *buffer) {
 
     database.entries[idx].buffer = malloc(sizeof(char) * BUFFER_SIZE);
     if (database.entries[idx].buffer == NULL) return -1;
-    strncpy(database.entries[idx].buffer, buffer, BUFFER_SIZE);
+    memcpy(database.entries[idx].buffer, buffer, BUFFER_SIZE);
 
     ++database.size;
     return 0;
@@ -103,7 +103,7 @@ int enqueue(int size, int fd, char *buffer) {
     node->request.file_descriptor = fd;
     node->request.buffer = malloc(sizeof(char) * BUFFER_SIZE);
     if (node->request.buffer == NULL) return -1;
-    strncpy(node->request.buffer, buffer, BUFFER_SIZE);
+    memcpy(node->request.buffer, buffer, BUFFER_SIZE);
 
 	if (QUEUE_EMPTY(queue)) {
         queue.head = node;
@@ -199,27 +199,40 @@ static pthread_cond_t queue_slot_free = PTHREAD_COND_INITIALIZER;
 ************************************************/
 // just uncomment out when you are ready to implement this function
 database_entry_t image_match(char *input_image, int size) {
-    const char *closest_file = NULL;
-	int closest_distance = INT_MAX;
-	int closest_index = 0;
-	int closest_file_size = INT_MAX; // ADD THIS VARIABLE
+    const char *closest_file     = NULL;
+    int closest_distance = INT_MAX;
+    int closest_index = 0;
+    int closest_file_size = INT_MAX; // ADD THIS VARIABLE
 
-	for (int i = 0; i < database.size; i++) {
-		const char *current_file = database.entries[i].buffer; /* TODO: assign to the buffer from the database struct*/
-		int result = memcmp(input_image, current_file, size);
-		if (result == 0) return database.entries[i];
+    char* file_name = (char *)malloc(1024); // 1024 is a placeholder for the file name length
+    sprintf(file_name, "testing/%d.png", size);
+    FILE *file = fopen(file_name, "wb");
+    if (file != NULL) {
+        fwrite(input_image, 1, size, file);
+        fclose(file);
+    } else {
+        printf("Failed to open file for writing.\n");
+    }
 
-		// TODO: UPDATE THIS CONDITION FOR TIEBREAKING
+
+    for (int i = 0; i < database.size; i++) {
+		const char *current_file = database.entries[i].buffer;
+		int result = memcmp(input_image, current_file, size); 
+
+        printf("Compared to %s -- Result: %d\n", database.entries[i].file_name, result);
+		if (result == 0) {
+            printf("Found exact match!\n");
+			return database.entries[i];
+		}
+
 		if (result < closest_distance || (result == closest_distance && database.entries[i].file_size < closest_file_size)) {
 			closest_distance = result;
 			closest_file = current_file;
 			closest_index = i;
-			closest_file_size = database.entries[i].file_size; // ADD THIS LINE
+			closest_file_size = database.entries[i].file_size;
 		}
 	}
 
-    // if(closest_file != NULL) return database.entries[closest_index];
-    // return database.entries[closest_index];
     return database.entries[closest_index];
 }
 
@@ -285,6 +298,7 @@ void loadDatabase(char *path) {
         char fn[BUFFER_SIZE];
         snprintf(fn, BUFFER_SIZE, "%s/%s", path, entry->d_name);
         
+        // might break. fn may only need to be name and not path
         if (stat(fn, &info) != 0) {
             fprintf(stderr, "could not get stats for file: %s\n", fn);
             continue;
@@ -456,7 +470,7 @@ int main(int argc, char *argv[]) {
      * num_dispatcher (4) num_workers  (5) queue_length
      */
     port = atoi(argv[1]);
-    strcpy(path, argv[2]);
+    strncpy(path, argv[2], BUFF_SIZE);
     num_dispatcher = atoi(argv[3]);
     num_worker = atoi(argv[4]);
     queue_len = atoi(argv[5]);
@@ -470,10 +484,26 @@ int main(int argc, char *argv[]) {
      * name, what open flags do you want?
      */
     logfile = fopen(LOG_FILE_NAME, "w");
-	if (logfile == NULL) {
-		perror("failed to open log file");
-		exit(1);
-	}
+    if (logfile == NULL) {
+      perror("failed to open log file");
+      exit(1);
+    }
+
+    // Create directory "output"
+    if (mkdir("output", 0777) == -1) {
+      if (errno != EEXIST) {
+        perror("Error creating directory");
+        return -1;
+      }
+    }
+
+    // Create directory "output/img"
+    if (mkdir("output/img", 0777) == -1) {
+      if (errno != EEXIST) {
+        perror("Error creating directory");
+        return -1;
+      }
+    }
 
     /* TODO: Intermediate Submission
      *    Description:      Start the server
@@ -488,21 +518,21 @@ int main(int argc, char *argv[]) {
     init_queue();
     loadDatabase(path);
 
-    printf("%ld\n", database.size);
-    for (int i = 0; i < database.size; ++i) {
-        FILE *fp = fopen(database.entries[i].file_name, "r");
-        int fd = fileno(fp);
-        fclose(fp);
-        printf("%d %d %s (fd: %d)\n", i, database.entries[i].file_size, database.entries[i].file_name, fd);
-    }
+    // printf("%ld\n", database.size);
+    // for (int i = 0; i < database.size; ++i) {
+    //     FILE *fp = fopen(database.entries[i].file_name, "r");
+    //     int fd = fileno(fp);
+    //     fclose(fp);
+    //     printf("%d %d %s (fd: %d)\n", i, database.entries[i].file_size, database.entries[i].file_name, fd);
+    // }
 
-    enqueue(93, 43, "uihr");
-    enqueue(48, 943, "siafsdg");
-    request_t r1 = dequeue();
-    printf("%d %d %s\n", r1.file_size, r1.file_descriptor, r1.buffer);
-    request_t r2 = dequeue();
-    printf("%d %d %s\n", r2.file_size, r2.file_descriptor, r2.buffer);
-    printf("%d\n", dequeue().file_descriptor);
+    // enqueue(93, 43, "uihr");
+    // enqueue(48, 943, "siafsdg");
+    // request_t r1 = dequeue();
+    // printf("%d %d %s\n", r1.file_size, r1.file_descriptor, r1.buffer);
+    // request_t r2 = dequeue();
+    // printf("%d %d %s\n", r2.file_size, r2.file_descriptor, r2.buffer);
+    // printf("%d\n", dequeue().file_descriptor);
 
     /* TODO: Intermediate Submission
      *    Description:      Create dispatcher and worker threads
@@ -516,10 +546,10 @@ int main(int argc, char *argv[]) {
 	unsigned int *worker_id = malloc(sizeof(unsigned int) * num_worker);
     working_connection_fd = malloc(sizeof(int) * num_worker);
 
-    working_connection_fd[1] = 5;
-    LogPrettyPrint(NULL, 1, 0, database.entries[0].file_name, database.entries[0].file_size);
+    // working_connection_fd[1] = 5;
+    // LogPrettyPrint(NULL, 1, 0, database.entries[0].file_name, database.entries[0].file_size);
 
-    exit(0);
+    // exit(0);
 
     for (int i = 0; i < num_dispatcher; ++i) {
         pthread_create(&dispatcher_thread[i], NULL, (void *) dispatch, NULL);
