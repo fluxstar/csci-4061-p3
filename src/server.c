@@ -313,6 +313,7 @@ void loadDatabase(char *path) {
         free(buffer);
         fclose(fp);
     }
+    closedir(dir);
 }
 
 void *dispatch(void *arg) {
@@ -502,10 +503,6 @@ int main(int argc, char *argv[]) {
     request_t r2 = dequeue();
     printf("%d %d %s\n", r2.file_size, r2.file_descriptor, r2.buffer);
     printf("%d\n", dequeue().file_descriptor);
-    
-    LogPrettyPrint(NULL, 1, 0, database.entries[0].file_name, database.entries[0].file_size);
-
-    exit(0);
 
     /* TODO: Intermediate Submission
      *    Description:      Create dispatcher and worker threads
@@ -518,6 +515,11 @@ int main(int argc, char *argv[]) {
     pthread_t *worker_thread = malloc(sizeof(pthread_t) * num_worker);
 	unsigned int *worker_id = malloc(sizeof(unsigned int) * num_worker);
     working_connection_fd = malloc(sizeof(int) * num_worker);
+
+    working_connection_fd[1] = 5;
+    LogPrettyPrint(NULL, 1, 0, database.entries[0].file_name, database.entries[0].file_size);
+
+    exit(0);
 
     for (int i = 0; i < num_dispatcher; ++i) {
         pthread_create(&dispatcher_thread[i], NULL, (void *) dispatch, NULL);

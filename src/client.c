@@ -17,7 +17,7 @@ processing_args_t req_entries[100];
 * 6. receive_file_from_server saves the processed image in the output directory, so pass in the right directory path
 * 7. Close the file and the socket
 */
-void * request_handle(void * args) {
+void *request_handle(void *args) {
     return NULL;
 }
 
@@ -30,8 +30,43 @@ void * request_handle(void * args) {
 * Note: Make sure to avoid any race conditions when creating the threads and passing the file path to the request_handle function. 
 * use the req_entries array to store the file path and pass the index of the array to the thread. 
 */
-void directory_trav(char * args) {
-   
+void directory_trav(char *args) {
+    DIR *dir;
+    struct dirent *entry;
+    struct stat info;
+
+    dir = opendir(args);
+    if (dir == NULL) {
+        fprintf(stderr, "could not find or open directory: %s\n", args);
+        return;
+    }
+
+    while ((entry = readdir(dir)) != NULL) {
+        char *fn = malloc(sizeof(char) * BUFF_SIZE);
+        snprintf(fn, BUFFER_SIZE, "%s/%s", args, entry->d_name);
+        
+        if (stat(fn, &info) != 0) {
+            fprintf(stderr, "could not get stats for file: %s\n", fn);
+            continue;
+        }
+        if (!S_ISREG(info.st_mode)) continue;
+
+        req_entries[worker_thread_id].file_name = fn;
+        req_entries[worker_thread_id].number_worker = worker_thread_id;
+
+        if (pthread_create(&worker_thread[worker_thread_id], NULL, 
+            (void *) request_handle, (void *) &req_entries[worker_thread_id]) != 0) {
+            fprintf(stderr, "error starting thread %d\n", worker_thread_id);
+        }
+
+        ++worker_thread_id;
+    }
+    
+    closedir(dir);
+    for (int i = 0; i < worker_thread_id; ++i) {
+        pthread_join(worker_thread[i], NULL);
+        free(req_entries[i].file_name);
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -42,9 +77,16 @@ int main(int argc, char *argv[]) {
     /*TODO:  Intermediate Submission
     * 1. Get the input args --> (1) directory path (2) Server Port (3) output path
     */
+   char *dir_path = argv[1];
+   port = atoi(argv[2]);
+   strncpy(output_path, argv[3], BUFFER_SIZE);
+
+    printf("params received: %s %d %s\n", dir_path, port, output_path);
 
     /*TODO: Intermediate Submission
     * Call the directory_trav function to traverse the directory and send the images to the server
     */
+    directory_trav("f");
+
     return 0;  
 }
