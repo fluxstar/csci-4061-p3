@@ -6,21 +6,26 @@ int num_dispatcher =
 int num_worker = 0;  // Global integer to indicate the number of worker threads
 FILE *logfile;       // Global file pointer to the log file
 int queue_len = 0;   // Global integer to indicate the length of the queue
-// keeps track of fd of client connection from accept_connection a 
+// keeps track of fd of client connection from accept_connection a
 // worker is fulfilling a request for. indexed by worker id
 int *working_connection_fd = NULL;
+#define MAX_FN_SIZE 256
 
 /********************* [ Database Code ] **********************/
 #define DEFAULT_DB_SIZE 100
 
+// Holds relevant database info
 typedef struct {
     database_entry_t *entries;
     size_t size;
     size_t capacity;
 } database_t;
 
+// Single maintained database
 static database_t database;
 
+// Creates an empty database. Will write to stderr if fails to allocate space
+// for entries
 void init_database() {
     database.entries = malloc(sizeof(database_entry_t) * DEFAULT_DB_SIZE);
     database.size = 0;
@@ -32,10 +37,19 @@ void init_database() {
     }
 }
 
-// adds an entry to the database. Returns 0 on success, -1 on failure
-int add_database_entry(char *fn, int size, char *buffer) {    
+/**********************************************
+ * add_database_entry
+   - parameters:
+      - fn is the name of the image
+      - size is the size of the image data
+      - buffer is the contents of the image (its bytes)
+   - returns:
+      - 0 on success, -1 on failure to add an entry
+************************************************/
+int add_database_entry(char *fn, int size, char *buffer) {
     if (database.size >= database.capacity) {
-        fprintf(stderr, "attempted to write more entries than capacity for (%s)\n", fn);
+        fprintf(stderr,
+                "attempted to write more entries than capacity for (%s)\n", fn);
         return -1;
     }
     int idx = database.size;
@@ -43,7 +57,7 @@ int add_database_entry(char *fn, int size, char *buffer) {
     database.entries[idx].file_name = malloc(sizeof(char) * BUFFER_SIZE);
     if (database.entries[idx].file_name == NULL) return -1;
     strncpy(database.entries[idx].file_name, fn, BUFFER_SIZE);
-    
+
     database.entries[idx].file_size = size;
 
     database.entries[idx].buffer = malloc(sizeof(char) * BUFFER_SIZE);
@@ -54,6 +68,7 @@ int add_database_entry(char *fn, int size, char *buffer) {
     return 0;
 }
 
+// clear database to be empty
 void clear_database() {
     for (int i = 0; i < database.size; ++i) {
         free(database.entries[i].file_name);
@@ -64,17 +79,18 @@ void clear_database() {
     database.size = 0;
 }
 
-
 /********************* [ Queue Code ] **********************/
+// node for the queue
 typedef struct queue_node {
     request_t request;
     struct queue_node *next;
 } queue_node_t;
 
+// hold relevant info on queue state
 typedef struct {
     queue_node_t *head;
     queue_node_t *tail;
-	size_t size;
+    size_t size;
 } queue_t;
 
 // Only maintain single queue
@@ -84,7 +100,7 @@ static queue_t queue;
 void init_queue() {
     queue.head = NULL;
     queue.tail = NULL;
-	queue.size = 0;
+    queue.size = 0;
 }
 
 // return 1 if empty, else 0
@@ -93,10 +109,20 @@ void init_queue() {
 // returns 1 ifr full, else 0
 #define QUEUE_FULL(queue) (queue.size == MAX_QUEUE_LEN)
 
-// adds a request to the queue. Returns 0 on success, 1 if full, -1 if errors
+/**********************************************
+ * enqueue
+   - parameters:
+      - size is the size of buffer passed in
+      - fd is the file descriptor/socket of the client whose
+        request this belongs to
+      - buffer holds the contents (bytes) of the requested image
+   - returns:
+      - 0 on success, 1 if queue full, -1 on failure
+************************************************/
 int enqueue(int size, int fd, char *buffer) {
-	if (QUEUE_FULL(queue)) return 1;
+    if (QUEUE_FULL(queue)) return 1;
 
+    // create queue node, deep copy buffer
     queue_node_t *node = malloc(sizeof(queue_node_t));
     if (node == NULL) return -1;
     node->request.file_size = size;
@@ -105,24 +131,32 @@ int enqueue(int size, int fd, char *buffer) {
     if (node->request.buffer == NULL) return -1;
     memcpy(node->request.buffer, buffer, BUFFER_SIZE);
 
-	if (QUEUE_EMPTY(queue)) {
+    // shouldn't happen with propper synchronization
+    if (QUEUE_EMPTY(queue)) {
         queue.head = node;
         queue.tail = queue.head;
         ++queue.size;
         return 0;
     }
-    
+
     queue.tail->next = node;
     queue.tail = node;
     ++queue.size;
     return 0;
 }
 
-// returns the request at the top of the queue. If no request available,
-// return request with file_size and file_descriptor of -1 (INVALID) and buffer NULL
+/**********************************************
+ * dequeue
+   - parameters:
+      - none
+   - returns:
+       - request_t at top of queue, else request with file_size/file_descriptor
+         of -1 (INVALID) and buffer NULL if queue empty
+************************************************/
 request_t dequeue() {
     request_t request;
 
+    // Shouldn't happen with propper synchronization
     if (QUEUE_EMPTY(queue)) {
         request.file_size = INVALID;
         request.file_descriptor = INVALID;
@@ -130,6 +164,7 @@ request_t dequeue() {
         return request;
     }
 
+    // remove node from queue and copy request to non ptr
     queue_node_t *node = queue.head;
     request.file_size = node->request.file_size;
     request.file_descriptor = node->request.file_descriptor;
@@ -137,7 +172,7 @@ request_t dequeue() {
 
     queue.head = node->next;
     free(node);
-	--queue.size;
+    --queue.size;
 
     if (QUEUE_EMPTY(queue)) {  // queue now empty
         queue.tail = NULL;
@@ -148,25 +183,23 @@ request_t dequeue() {
 
 // remove all elements from a queue
 void clear_queue() {
-	queue_node_t *curr_node = queue.head;
-	queue_node_t *next_node = NULL;
+    queue_node_t *curr_node = queue.head;
+    queue_node_t *next_node = NULL;
 
-	while (curr_node != NULL) {
-		next_node = curr_node->next;
-		free(curr_node->request.buffer);
-		free(curr_node);
-		curr_node = next_node;
-	}
-	queue.size = 0;
+    while (curr_node != NULL) {
+        next_node = curr_node->next;
+        free(curr_node->request.buffer);
+        free(curr_node);
+        curr_node = next_node;
+    }
+    queue.size = 0;
 }
-
 
 /********************* [ Locks and Condition Variables ] **********************/
 static pthread_mutex_t queue_access = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t log_file_access = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t queue_has_content = PTHREAD_COND_INITIALIZER;
 static pthread_cond_t queue_slot_free = PTHREAD_COND_INITIALIZER;
-
 
 /* TODO: Intermediate Submission
   TODO: Add any global variables that you may need to track the requests and
@@ -199,39 +232,41 @@ static pthread_cond_t queue_slot_free = PTHREAD_COND_INITIALIZER;
 ************************************************/
 // just uncomment out when you are ready to implement this function
 database_entry_t image_match(char *input_image, int size) {
-    const char *closest_file     = NULL;
+    const char *closest_file = NULL;
     int closest_distance = INT_MAX;
     int closest_index = 0;
-    int closest_file_size = INT_MAX; // ADD THIS VARIABLE
+    int closest_file_size = INT_MAX;  // ADD THIS VARIABLE
 
-    char* file_name = (char *)malloc(1024); // 1024 is a placeholder for the file name length
+    // debug
+    char *file_name =
+        (char *)malloc(1024);  // 1024 is a placeholder for the file name length
     sprintf(file_name, "testing/%d.png", size);
     FILE *file = fopen(file_name, "wb");
     if (file != NULL) {
         fwrite(input_image, 1, size, file);
         fclose(file);
     } else {
-        printf("Failed to open file for writing.\n");
+        fprintf(stderr, "Failed to open file for writing.\n");
     }
 
-
+    // get the closest matching image from the database to the provided image
     for (int i = 0; i < database.size; i++) {
-		const char *current_file = database.entries[i].buffer;
-		int result = memcmp(input_image, current_file, size); 
+        const char *current_file = database.entries[i].buffer;
+        int result = memcmp(input_image, current_file, size);
 
-        printf("Compared to %s -- Result: %d\n", database.entries[i].file_name, result);
-		if (result == 0) {
-            printf("Found exact match!\n");
-			return database.entries[i];
-		}
+        if (result == 0) {
+            return database.entries[i];
+        }
 
-		if (result < closest_distance || (result == closest_distance && database.entries[i].file_size < closest_file_size)) {
-			closest_distance = result;
-			closest_file = current_file;
-			closest_index = i;
-			closest_file_size = database.entries[i].file_size;
-		}
-	}
+        if (result < closest_distance ||
+            (result == closest_distance &&
+             database.entries[i].file_size < closest_file_size)) {
+            closest_distance = result;
+            closest_file = current_file;
+            closest_index = i;
+            closest_file_size = database.entries[i].file_size;
+        }
+    }
 
     return database.entries[closest_index];
 }
@@ -239,6 +274,8 @@ database_entry_t image_match(char *input_image, int size) {
 // TODO: Implement this function
 /**********************************************
  * LogPrettyPrint
+   - must update working_connection_fd[threadID] to fd thread/worker is
+     working on before calling
    - parameters:
       - to_write is expected to be an open file pointer, or it
         can be NULL which means that the output is printed to the terminal
@@ -248,19 +285,24 @@ database_entry_t image_match(char *input_image, int size) {
 ************************************************/
 void LogPrettyPrint(FILE *to_write, int threadId, int requestNumber,
                     char *file_name, int file_size) {
-    int fd = working_connection_fd[threadId];
+    // get file descriptor a given thread is working on
+    int fd = working_connection_fd[threadId];  // MUST BE UPDATED BEFORE CALLING
+                                               // PRETTY PRINT
     if (fd < 0) {
         fprintf(stderr, "bad file ptr provided. Not open or does not exist\n");
         return;
     }
 
     if (to_write == NULL) {
-        printf("[%d][%d][%d][%s][%d]\n", threadId, requestNumber, fd, file_name, file_size);
+        printf("[%d][%d][%d][%s][%d]\n", threadId, requestNumber, fd, file_name,
+               file_size);
         return;
     }
 
     pthread_mutex_lock(&log_file_access);
-    fprintf(to_write, "[%d][%d][%d][%s][%d]\n", threadId, requestNumber, fd, file_name, file_size);
+    fprintf(to_write, "[%d][%d][%d][%s][%d]\n", threadId, requestNumber, fd,
+            file_name, file_size);
+    fflush(to_write);  // Flush the file
     pthread_mutex_unlock(&log_file_access);
 }
 
@@ -294,11 +336,12 @@ void loadDatabase(char *path) {
         return;
     }
 
+    // read name, size, and contents of each image in given directory into
+    // database
     while ((entry = readdir(dir)) != NULL) {
-        char fn[BUFFER_SIZE];
-        snprintf(fn, BUFFER_SIZE, "%s/%s", path, entry->d_name);
-        
-        // might break. fn may only need to be name and not path
+        char fn[BUFFER_SIZE + MAX_FN_SIZE];
+        snprintf(fn, BUFFER_SIZE + MAX_FN_SIZE, "%s/%s", path, entry->d_name);
+
         if (stat(fn, &info) != 0) {
             fprintf(stderr, "could not get stats for file: %s\n", fn);
             continue;
@@ -316,6 +359,7 @@ void loadDatabase(char *path) {
             fprintf(stderr, "could not allocate buffer for file contents\n");
             continue;
         }
+
         if (fread(buffer, info.st_size, 1, fp) != 1) {
             fprintf(stderr, "error reading from file: %s\n", fn);
             continue;
@@ -339,27 +383,27 @@ void *dispatch(void *arg) {
          *    Description:      Accept client connection
          *    Utility Function: int accept_connection(void)
          */
-		int fd = accept_connection();
-		if (fd < 0) {
-			fprintf(stderr, "client connection not accepted\n");
-			continue;
-		}
+        int fd = accept_connection();
+        if (fd < 0) {
+            fprintf(stderr, "client connection not accepted\n");
+            continue;
+        }
 
         /* TODO: Intermediate Submission
          *    Description:      Get request from client
          *    Utility Function: char * get_request_server(int fd, size_t
          * *filelength)
          */
-		char *request = get_request_server(fd, &file_size);
-		if (request == NULL) {
-			fprintf(stderr, "could not get client request");
-			continue;
-		}
+        char *request = get_request_server(fd, &file_size);
+        if (request == NULL) {
+            fprintf(stderr, "could not get client request");
+            continue;
+        }
 
-		pthread_mutex_lock(&queue_access);
-		while (QUEUE_FULL(queue) == 1) {
-			pthread_cond_wait(&queue_slot_free, &queue_access);
-		}
+        pthread_mutex_lock(&queue_access);
+        while (QUEUE_FULL(queue) == 1) {
+            pthread_cond_wait(&queue_slot_free, &queue_access);
+        }
 
         enqueue(file_size, fd, request);
         free(request);
@@ -392,19 +436,17 @@ void *dispatch(void *arg) {
 void *worker(void *arg) {
     int num_request =
         0;  // Integer for tracking each request for printing into the log file
-    // int fileSize = 0;  // Integer to hold the size of the file being requested
-    // void *memory = NULL;  // memory pointer where contents being requested are
-                          // read and stored
-    // int fd = INVALID;  // Integer to hold the file descriptor of incoming
-                       // request
-    // char *mybuf;  // String to hold the contents of the file being requested
+    // int fileSize = 0;  // Integer to hold the size of the file being
+    // requested void *memory = NULL;  // memory pointer where contents being
+    // requested are read and stored int fd = INVALID;  // Integer to hold the
+    // file descriptor of incoming request char *mybuf;  // String to hold the
+    // contents of the file being requested
 
     /* TODO : Intermediate Submission
      *    Description:      Get the id as an input argument from arg, set it to
      * ID
      */
-    const unsigned int id = *((unsigned int *) arg);
-    printf("starting worker %d\n", id);
+    const unsigned int id = *((unsigned int *)arg);
 
     while (1) {
         /* TODO
@@ -424,7 +466,7 @@ void *worker(void *arg) {
           */
 
         pthread_mutex_lock(&queue_access);
-        while(QUEUE_EMPTY(queue)) {
+        while (QUEUE_EMPTY(queue)) {
             pthread_cond_wait(&queue_has_content, &queue_access);
         }
 
@@ -444,10 +486,13 @@ void *worker(void *arg) {
 
         ++num_request;
         working_connection_fd[id] = request.file_descriptor;
-        LogPrettyPrint(logfile, id, num_request, entry.file_name, entry.file_size);
+        LogPrettyPrint(logfile, id, num_request, entry.file_name,
+                       entry.file_size);
 
-        if (send_file_to_client(request.file_descriptor, entry.buffer, entry.file_size) == -1) {
-            fprintf(stderr, "failed to send file back to client: %s\n", entry.file_name);
+        if (send_file_to_client(request.file_descriptor, entry.buffer,
+                                entry.file_size) == -1) {
+            fprintf(stderr, "failed to send file back to client: %s\n",
+                    entry.file_name);
         }
     }
 }
@@ -475,9 +520,6 @@ int main(int argc, char *argv[]) {
     num_worker = atoi(argv[4]);
     queue_len = atoi(argv[5]);
 
-    printf("params received: %d %s %d %d %d\n", port, path, num_dispatcher,
-           num_worker, queue_len);
-
     /* TODO: Intermediate Submission
      *    Description:      Open log file
      *    Hint:             Use Global "File* logfile", use "server_log" as the
@@ -485,24 +527,24 @@ int main(int argc, char *argv[]) {
      */
     logfile = fopen(LOG_FILE_NAME, "w");
     if (logfile == NULL) {
-      perror("failed to open log file");
-      exit(1);
+        perror("failed to open log file");
+        exit(1);
     }
 
     // Create directory "output"
     if (mkdir("output", 0777) == -1) {
-      if (errno != EEXIST) {
-        perror("Error creating directory");
-        return -1;
-      }
+        if (errno != EEXIST) {
+            perror("Error creating directory");
+            return -1;
+        }
     }
 
     // Create directory "output/img"
     if (mkdir("output/img", 0777) == -1) {
-      if (errno != EEXIST) {
-        perror("Error creating directory");
-        return -1;
-      }
+        if (errno != EEXIST) {
+            perror("Error creating directory");
+            return -1;
+        }
     }
 
     /* TODO: Intermediate Submission
@@ -514,25 +556,9 @@ int main(int argc, char *argv[]) {
     /* TODO : Intermediate Submission
      *    Description:      Load the database
      */
-    init_database();
+    init_database();  // init database and queue
     init_queue();
     loadDatabase(path);
-
-    // printf("%ld\n", database.size);
-    // for (int i = 0; i < database.size; ++i) {
-    //     FILE *fp = fopen(database.entries[i].file_name, "r");
-    //     int fd = fileno(fp);
-    //     fclose(fp);
-    //     printf("%d %d %s (fd: %d)\n", i, database.entries[i].file_size, database.entries[i].file_name, fd);
-    // }
-
-    // enqueue(93, 43, "uihr");
-    // enqueue(48, 943, "siafsdg");
-    // request_t r1 = dequeue();
-    // printf("%d %d %s\n", r1.file_size, r1.file_descriptor, r1.buffer);
-    // request_t r2 = dequeue();
-    // printf("%d %d %s\n", r2.file_size, r2.file_descriptor, r2.buffer);
-    // printf("%d\n", dequeue().file_descriptor);
 
     /* TODO: Intermediate Submission
      *    Description:      Create dispatcher and worker threads
@@ -543,22 +569,18 @@ int main(int argc, char *argv[]) {
      */
     pthread_t *dispatcher_thread = malloc(sizeof(pthread_t) * num_dispatcher);
     pthread_t *worker_thread = malloc(sizeof(pthread_t) * num_worker);
-	unsigned int *worker_id = malloc(sizeof(unsigned int) * num_worker);
+    unsigned int *worker_id = malloc(sizeof(unsigned int) * num_worker);
     working_connection_fd = malloc(sizeof(int) * num_worker);
 
-    // working_connection_fd[1] = 5;
-    // LogPrettyPrint(NULL, 1, 0, database.entries[0].file_name, database.entries[0].file_size);
-
-    // exit(0);
-
     for (int i = 0; i < num_dispatcher; ++i) {
-        pthread_create(&dispatcher_thread[i], NULL, (void *) dispatch, NULL);
+        pthread_create(&dispatcher_thread[i], NULL, (void *)dispatch, NULL);
     }
 
-	for (int i = 0; i < num_worker; ++i) {
-		worker_id[i] = (unsigned int) i;
-		pthread_create(&worker_thread[i], NULL, (void *) worker, (void *) &worker_id[i]);
-	}
+    for (int i = 0; i < num_worker; ++i) {
+        worker_id[i] = (unsigned int)i;
+        pthread_create(&worker_thread[i], NULL, (void *)worker,
+                       (void *)&worker_id[i]);
+    }
 
     // Wait for each of the threads to complete their work
     // Threads (if created) will not exit (see while loop), but this keeps main
@@ -571,7 +593,7 @@ int main(int argc, char *argv[]) {
         }
     }
     for (i = 0; i < num_worker; i++) {
-        // fprintf(stderr, "JOINING WORKER %d \n",i);
+        fprintf(stderr, "JOINING WORKER %d \n",i);
         if ((pthread_join(worker_thread[i], NULL)) != 0) {
             printf("ERROR : Fail to join worker thread %d.\n", i);
         }
@@ -579,9 +601,9 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "SERVER DONE \n");  // will never be reached in SOLUTION
     fclose(logfile);                    // closing the log files
 
-	clear_queue();
+    clear_queue();
     clear_database();
-	free(dispatcher_thread);
-	free(worker_thread);
-	free(worker_id);
+    free(dispatcher_thread);
+    free(worker_thread);
+    free(worker_id);
 }
