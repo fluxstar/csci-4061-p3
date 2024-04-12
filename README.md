@@ -4,37 +4,62 @@ Created by Group 31:
       the file through the established network socket.
     - assisted receiving images from the server and ensuring no rescource leaks.
     - debugging in client.c
+
 - krant115 (Logan Krant)
-    - Will implement / iterate upon image_match & image buffer handling
-    - Figure out how to include file descriptor in LogPrettyPrint 
-        (replace 666 placeholder)
+    - Implemented intermediate submission for server.c using a circular fixed array as the data structure
+    - Extensive debugging for image buffer corruption when passed into image_match (strncpy vs memcpy was the root cause)
+    - Assisted with the final implementation of request_handle in client.c based on drafts
+    - Created the first drafts of LogPrettyPrint, worker/dispatcher, database initialization, directory-trav, and request_handle
+
 - phimp003 (Jimmy Phimpadabsee)
-    - Will implement new queue
-    - Investigate/fix general synchronization issues (locks, condition
-        variables, server/client interaction)
-    - help investigate image matching issues
+    - Implemented queue and database structs and functions
+    - Implemented prettyLog
+    - Helped debug image match not working
+    - wrote second draft of server/client, taking the best of the 2 drafts
 
 Code primarily tested on csel-kh1260-02.cselabs.umn.edu
     
 Changes to existing files: None
 
-"Plan on how you are going to construct the worker threads and how you will make use of mutex locks and condition variables"  
-- Instead of creating/destroying threads for each request, we'll create a pool of worker/dispatcher threads to use/reuse when the server is initialized
-    - threads chosen by thread system to run to produce/consume request in controled random
-    order using locks/CV (block and only produce to queue when empty, only consume when full)
-- add defined operations to queue to control dispatcher/worker access/operations and
-ensure correct usage
-- Implement thread-safe queue using locks and condition variables to prevent race conditions
-- Use mutex locks to sync access to the queue allowing only one thread to modify the queue at a time.
-- Will use condition variables to sync work between dispatcher and worker threads: one condition variable signals worker threads when a new request is available, and the other signals the dispatcher when there is available space in the queue.
+How could you enable your program to make EACH individual request parallelized? (high-level
+pseudocode would be acceptable/preferred for this part)
+
+We can enable our program to parallelize requests by maintaining a pool of threads which constantly run according to the thread system on all the CPU's cores and pick up available requests when they run via a queue; ensuring request are fulfilled and that more CPU time is used fulfilling requests. We let other threads know when a thread has produced or added content in the queue and signal them to run time soon if they are waiting for a space or a request to take; encouraging the thread system to run threads with actual work to do across the CPU cores.
+
+lock l;
+request_queue q;
+
+dispatcher():
+    while(1):
+        get client request
+        lock(l)
+        while (queue_full(q)):
+            wait for queue to have free space
+        enqueue(q, client_request)
+        let any waiting threads know there's a request in queue
+        unlock(l);
+
+worker():
+    while(1):
+        lock(l)
+        while (queue_empty(q)):
+            wait for queue to have request(s)
+        request = dequeue(q)
+        let any waiting threads know there's a free slot in queue
+        unlock(l)
+        do work on request
+
+main():
+    create n dispatcher threads
+    create m worker threads
+    join threads when done
 
 
-//////////////////NEW//////////////////////
 System Design and Thread Management
 
 Transitioned from on-demand thread creation to a persistent thread pool model for both dispatcher and worker threads, initializing this pool at server startup to optimize resource management and processing efficiency.
 
-Thread Pool Usage:Threads can now manange to handle incoming requests, which significantly reducing the overhead of thread creation and destruction.
+Thread Pool Usage: Threads can now manange to handle incoming requests, which significantly reducing the overhead of thread creation and destruction.
 
 Queue Management: Implemented a thread-safe queue controlled via mutex locks and condition variables to manage the task flow between dispatcher and worker threads efficiently.
 

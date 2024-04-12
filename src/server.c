@@ -249,7 +249,6 @@ database_entry_t image_match(char *input_image, int size) {
             (result == closest_distance &&
              database.entries[i].file_size < closest_file_size)) {
             closest_distance = result;
-            closest_file = current_file;
             closest_index = i;
             closest_file_size = database.entries[i].file_size;
         }
